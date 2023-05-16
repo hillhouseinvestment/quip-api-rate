@@ -36,6 +36,7 @@ import ssl
 import sys
 import time
 import xml.etree.cElementTree
+from decorator import retry
 import os
 
 PY3 = sys.version_info > (3,)
@@ -95,6 +96,12 @@ except AttributeError:
 
 
 class QuipError(Exception):
+    def __init__(self, code, message, http_error):
+        Exception.__init__(self, "%d: %s" % (code, message))
+        self.code = code
+        self.http_error = http_error
+
+class RatelimitError(Exception):
     def __init__(self, code, message, http_error):
         Exception.__init__(self, "%d: %s" % (code, message))
         self.code = code
@@ -713,6 +720,8 @@ class QuipClient(object):
         """Returns a `datetime` for the given microsecond string"""
         return datetime.datetime.utcfromtimestamp(usec / 1000000.0)
 
+    @retry(urllib2.URLError, tries=50, delay=5, backoff=1)
+    @retry(RatelimitError, tries=500, delay=5, backoff=1)
     def get_blob(self, thread_id, blob_id):
         """Returns a file-like object with the contents of the given blob from
         the given thread.
@@ -725,6 +734,8 @@ class QuipClient(object):
             request.add_header("Authorization", "Bearer " + self.access_token)
         return self._urlopen(request, timeout=self.request_timeout)
 
+    @retry(urllib2.URLError, tries=50, delay=5, backoff=1)
+    @retry(RatelimitError, tries=500, delay=5, backoff=1)
     def put_blob(self, thread_id, blob, name=None):
         """Uploads an image or other blob to the given Quip thread. Returns an
         ID that can be used to add the image to the document of the thread.
@@ -757,6 +768,8 @@ class QuipClient(object):
         """
         return self._fetch_json("websockets/new", **kwargs)
 
+    @retry(urllib2.URLError, tries=50, delay=5, backoff=1)
+    @retry(RatelimitError, tries=500, delay=5, backoff=1)
     def _fetch_json(self, path, post_data=None, **args):
         request = Request(url=self._url(path, **args))
         if post_data:
@@ -856,6 +869,8 @@ class QuipClient(object):
             if error.getcode() != 503 or message != u'Over Rate Limit':
                 # It's not, raise 'er up
                 raise QuipError(error.code, message, error)
+            if error.getcode() == 429 or error.getcode() == 503 or message == u'Over Rate Limit':
+                raise RatelimitError(error.code, message, error)
             else:
                 # Yup, it's rate limit. Usually this means we exhausted the
                 # *hourly* rate limit, which doesn't even seem to show up 

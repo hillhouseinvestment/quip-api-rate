@@ -30,6 +30,8 @@ import urllib2
 import xml.etree.cElementTree
 import xml.sax.saxutils
 import json
+import time
+from decorator import retry
 
 reload(sys)
 sys.setdefaultencoding('utf8')
@@ -217,7 +219,7 @@ class BaqupClient(quip.QuipClient):
             return json.loads(contents)
         else:
             return contents
-    
+
     def _cache_put(self, key, format, value):
         """Put a value in the cache at a `key` and `format`.
         
@@ -338,7 +340,7 @@ def main():
         help="Directory where to place backup data.")
     parser.add_argument("--cache_directory", default=None,
         help="Directory where to cache downloaded thread data")
-    parser.add_argument("--use_rate_limiting", action='store_true',
+    parser.add_argument("--use_rate_limiting", default=True, action='store_true',
         help="Watch API rate limit and wait when it runs out")
 
     args = parser.parse_args()
@@ -355,7 +357,7 @@ def main():
     else:
         client = quip.QuipClient(
             access_token=args.access_token, base_url=args.quip_api_base_url,
-            request_timeout=120, thread_cache_dir=thread_cache_dir,
+            request_timeout=120, thread_cache_dir=cache_dir,
             use_rate_limiting=bool(args.use_rate_limiting))
     
     output_directory = os.path.join(
@@ -445,7 +447,8 @@ def _backup_thread(thread, client, output_directory, depth):
             if content_disposition:
                 image_filename = content_disposition.split('"')[-2]
             else:
-                image_filename = "image.png"
+                st = time.time()
+                image_filename = str(st) + "image.png"
             image_output_path = os.path.join(output_directory, image_filename)
             with open(image_output_path, "w") as image_file:
                 image_file.write(blob_response.read())
@@ -563,5 +566,8 @@ _DOCUMENT_TEMPLATE = _read_template("document.html")
 _MESSAGE_TEMPLATE = _read_template("message.html")
 _MESSAGES_TEMPLATE = _read_template("messages.html")
 
+
+
 if __name__ == '__main__':
     main()
+
